@@ -2,19 +2,44 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedTable, TableRow } from "./types";
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      const isRateLimit = error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED");
+      if (isRateLimit && i < maxRetries - 1) {
+        const waitTime = Math.pow(2, i) * 2000 + Math.random() * 1000;
+        console.warn(`Rate limited. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${maxRetries})`);
+        await sleep(waitTime);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 export const extractTableFromImage = async (base64Image: string): Promise<ExtractedTable[]> => {
-  // Always create a new instance to ensure the latest API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const prompt = `Bạn là một chuyên gia OCR. Hãy trích xuất tất cả các bảng dữ liệu có trong hình ảnh này.
-  Yêu cầu:
-  1. Xác định tên bảng (nếu có) hoặc đặt tên mô tả.
-  2. Xác định danh sách tiêu đề cột (headers).
-  3. Trích xuất dữ liệu các hàng dưới dạng mảng các chuỗi, mỗi chuỗi tương ứng với một ô trong hàng.
-  4. Đảm bảo số lượng phần tử trong mỗi hàng khớp với số lượng tiêu đề cột.
-  5. Nếu có nhiều bảng, hãy trích xuất riêng biệt.`;
+  const prompt = `Bạn là một chuyên gia trích xuất dữ liệu (OCR). 
+  Nhiệm vụ: Tìm và trích xuất TẤT CẢ các bảng dữ liệu có trong hình ảnh này.
+  
+  Yêu cầu quan trọng:
+  1. Ngay cả khi bảng không có đường kẻ rõ ràng, hãy dựa vào khoảng cách giữa các chữ để xác định cột.
+  2. Xác định tên bảng (tableName) một cách logic dựa vào tiêu đề phía trên bảng.
+  3. Headers: Trích xuất chính xác tên các cột.
+  4. Data: Trích xuất dữ liệu từng hàng. Mỗi hàng là một mảng các chuỗi tương ứng với headers.
+  5. Nếu không thấy bảng nào rõ ràng, hãy cố gắng nhóm các thông tin có cấu trúc lặp lại thành một bảng.
+  6. Tuyệt đối không bỏ sót hàng hoặc cột nào.
+  7. Trả về kết quả dưới dạng JSON theo schema đã định nghĩa.`;
 
-  try {
+  const callApi = async () => {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [
@@ -69,28 +94,24 @@ export const extractTableFromImage = async (base64Image: string): Promise<Extrac
     if (!text) throw new Error("Không nhận được phản hồi từ AI");
     
     const rawResult = JSON.parse(text);
-    
-    // Map the array-of-arrays back to array-of-objects format
+    if (!rawResult.tables || !Array.isArray(rawResult.tables)) return [];
+
     return rawResult.tables.map((table: any) => {
-      const rows: TableRow[] = table.data.map((rowArray: string[]) => {
+      const rows: TableRow[] = (table.data || []).map((rowArray: string[]) => {
         const rowObject: TableRow = {};
-        table.headers.forEach((header: string, index: number) => {
-          rowObject[header] = rowArray[index] || "";
+        (table.headers || []).forEach((header: string, index: number) => {
+          rowObject[header] = rowArray[index] !== undefined ? rowArray[index] : "";
         });
         return rowObject;
       });
 
       return {
-        tableName: table.tableName,
-        headers: table.headers,
+        tableName: table.tableName || "Bảng không tên",
+        headers: table.headers || [],
         rows: rows
       };
     });
-  } catch (error: any) {
-    console.error("Gemini OCR Error:", error);
-    if (error.message?.includes("API_KEY_INVALID")) {
-      throw new Error("API Key không hợp lệ. Vui lòng kiểm tra lại cấu hình.");
-    }
-    throw error;
-  }
+  };
+
+  return retryWithBackoff(callApi);
 };

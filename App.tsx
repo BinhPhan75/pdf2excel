@@ -9,6 +9,8 @@ import { extractTableFromImage } from './geminiService';
 import { exportToExcel } from './excelUtils';
 import { Loader2, CheckCircle2, AlertCircle, FileStack } from 'lucide-react';
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const App: React.FC = () => {
   const [mergeAllSheets, setMergeAllSheets] = useState(false);
   const [state, setState] = useState<AppState>({
@@ -33,49 +35,64 @@ const App: React.FC = () => {
       const images = await pdfToImages(file);
       setState(prev => ({ 
         ...prev, 
-        processing: { ...prev.processing, message: `Đang xử lý ${images.length} trang dữ liệu...`, progress: 30 } 
+        processing: { ...prev.processing, message: `Đang chuẩn bị xử lý ${images.length} trang...`, progress: 20 } 
       }));
 
       const allTables: ExtractedTable[] = [];
       for (let i = 0; i < images.length; i++) {
+        // Update status for each page
         setState(prev => ({ 
           ...prev, 
           processing: { 
             ...prev.processing, 
             message: `Đang phân tích trang ${i + 1}/${images.length}...`, 
-            progress: 30 + Math.floor((i / images.length) * 60) 
+            progress: 20 + Math.floor((i / images.length) * 75) 
           } 
         }));
         
         try {
           const extracted = await extractTableFromImage(images[i]);
-          allTables.push(...extracted);
+          if (extracted && extracted.length > 0) {
+            allTables.push(...extracted);
+          }
         } catch (pageError: any) {
-          console.warn(`Lỗi tại trang ${i + 1}:`, pageError);
+          console.error(`Lỗi tại trang ${i + 1}:`, pageError);
+          // If it's a fatal error (not 429 already handled by backoff), we show it
+          if (pageError.message?.includes("API_KEY_INVALID")) throw pageError;
+        }
+
+        // Mandatory rest between pages to help stay within free tier limits (Gemini Flash free tier is tight)
+        if (i < images.length - 1) {
+          await sleep(1500); 
         }
       }
 
       if (allTables.length === 0) {
-        throw new Error("Không tìm thấy bảng dữ liệu nào trong tệp tin này.");
+        throw new Error("Không tìm thấy bảng dữ liệu nào. Có thể do tài liệu không có bảng hoặc chất lượng hình ảnh quá thấp.");
       }
 
       setState(prev => ({
         ...prev,
         tables: allTables,
-        processing: { status: 'success', message: 'Trích xuất thành công!', progress: 100 }
+        processing: { status: 'success', message: `Xong! Tìm thấy ${allTables.length} bảng dữ liệu.`, progress: 100 }
       }));
 
       setTimeout(() => {
         setState(prev => ({ ...prev, processing: { ...prev.processing, status: 'idle' } }));
-      }, 5000);
+      }, 3000);
 
     } catch (error: any) {
       console.error("Processing Error:", error);
+      let errorMsg = error.message || 'Lỗi không xác định khi gọi API.';
+      if (errorMsg.includes("RESOURCE_EXHAUSTED")) {
+        errorMsg = "Quá tải yêu cầu (Rate Limit). Vui lòng đợi 1 phút và thử lại với tệp ít trang hơn.";
+      }
+      
       setState(prev => ({
         ...prev,
         processing: { 
           status: 'error', 
-          message: error.message || 'Lỗi không xác định khi gọi API.', 
+          message: errorMsg, 
           progress: 0 
         }
       }));
