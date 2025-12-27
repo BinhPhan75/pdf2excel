@@ -1,0 +1,5 @@
+{
+  "name": "Gemini PDF to Excel OCR",
+  "description": "A professional tool that uses Gemini OCR to intelligently extract tabular data from PDF files and convert them into organized Excel spreadsheets.",
+  "requestFramePermissions": []
+}
