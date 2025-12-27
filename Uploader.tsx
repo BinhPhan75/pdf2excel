@@ -23,13 +23,10 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelect, disabled }) =>
 
   const validateAndSelectFile = (file: File) => {
     if (file.type !== 'application/pdf') {
-      setError('Please select a PDF file.');
+      setError('Vui lòng chọn tệp định dạng PDF.');
       return;
     }
-    if (file.size > 20 * 1024 * 1024) { // 20MB limit
-      setError('File size exceeds 20MB. Please choose a smaller file.');
-      return;
-    }
+    // Đã gỡ bỏ giới hạn dung lượng tệp theo yêu cầu
     setError(null);
     onFileSelect(file);
   };
@@ -74,19 +71,19 @@ export const Uploader: React.FC<UploaderProps> = ({ onFileSelect, disabled }) =>
         </div>
 
         <h3 className="text-xl font-semibold text-slate-800 mb-2">
-          {isDragging ? 'Drop your PDF here' : 'Upload your PDF'}
+          {isDragging ? 'Thả tệp PDF vào đây' : 'Tải lên tệp PDF của bạn'}
         </h3>
         <p className="text-slate-500 max-w-xs mx-auto mb-6">
-          Drag and drop your file here, or click to browse. Tables will be extracted automatically.
+          Kéo và thả tệp vào đây, hoặc nhấn để chọn tệp. Các bảng dữ liệu sẽ được trích xuất tự động.
         </p>
 
         <div className="flex items-center gap-4 text-xs font-medium text-slate-400">
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
             <FileText className="w-3.5 h-3.5" />
-            PDF Only
+            Chỉ nhận PDF
           </div>
-          <div className="px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
-            Max 20MB
+          <div className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full border border-blue-100">
+            Không giới hạn dung lượng
           </div>
         </div>
       </div>
