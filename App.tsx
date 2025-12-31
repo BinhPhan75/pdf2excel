@@ -28,64 +28,66 @@ const App: React.FC = () => {
       ...prev,
       file,
       tables: [],
-      processing: { status: 'loading', message: 'Đang chuyển đổi PDF sang hình ảnh...', progress: 10 }
+      processing: { status: 'loading', message: 'Đang khởi tạo bộ chuyển đổi...', progress: 5 }
     }));
 
     try {
       const images = await pdfToImages(file);
       setState(prev => ({ 
         ...prev, 
-        processing: { ...prev.processing, message: `Đang chuẩn bị xử lý ${images.length} trang...`, progress: 20 } 
+        processing: { ...prev.processing, message: `Đã chuẩn bị ${images.length} trang. Bắt đầu trích xuất...`, progress: 15 } 
       }));
 
       const allTables: ExtractedTable[] = [];
       for (let i = 0; i < images.length; i++) {
-        // Update status for each page
         setState(prev => ({ 
           ...prev, 
           processing: { 
             ...prev.processing, 
-            message: `Đang phân tích trang ${i + 1}/${images.length}...`, 
-            progress: 20 + Math.floor((i / images.length) * 75) 
+            message: `Đang xử lý trang ${i + 1}/${images.length}... (AI đang phân tích)`, 
+            progress: 15 + Math.floor((i / images.length) * 80) 
           } 
         }));
         
         try {
+          // Thêm một khoảng nghỉ nhỏ trước khi gọi API để ổn định quota
+          if (i > 0) await sleep(1000); 
+          
           const extracted = await extractTableFromImage(images[i]);
           if (extracted && extracted.length > 0) {
             allTables.push(...extracted);
           }
         } catch (pageError: any) {
-          console.error(`Lỗi tại trang ${i + 1}:`, pageError);
-          // If it's a fatal error (not 429 already handled by backoff), we show it
+          console.error(`Lỗi nghiêm trọng tại trang ${i + 1}:`, pageError);
           if (pageError.message?.includes("API_KEY_INVALID")) throw pageError;
         }
 
-        // Mandatory rest between pages to help stay within free tier limits (Gemini Flash free tier is tight)
+        // Tăng thời gian nghỉ giữa các trang lên 3.5s để tránh 429 triệt để trên Free Tier
         if (i < images.length - 1) {
-          await sleep(1500); 
+          await sleep(3500); 
         }
       }
 
       if (allTables.length === 0) {
-        throw new Error("Không tìm thấy bảng dữ liệu nào. Có thể do tài liệu không có bảng hoặc chất lượng hình ảnh quá thấp.");
+        throw new Error("Không thể tìm thấy bảng dữ liệu nào. Vui lòng kiểm tra xem file PDF có chứa bảng rõ ràng không hoặc thử lại sau.");
       }
 
       setState(prev => ({
         ...prev,
         tables: allTables,
-        processing: { status: 'success', message: `Xong! Tìm thấy ${allTables.length} bảng dữ liệu.`, progress: 100 }
+        processing: { status: 'success', message: `Hoàn tất! Đã trích xuất được ${allTables.length} bảng.`, progress: 100 }
       }));
 
       setTimeout(() => {
         setState(prev => ({ ...prev, processing: { ...prev.processing, status: 'idle' } }));
-      }, 3000);
+      }, 5000);
 
     } catch (error: any) {
-      console.error("Processing Error:", error);
-      let errorMsg = error.message || 'Lỗi không xác định khi gọi API.';
-      if (errorMsg.includes("RESOURCE_EXHAUSTED")) {
-        errorMsg = "Quá tải yêu cầu (Rate Limit). Vui lòng đợi 1 phút và thử lại với tệp ít trang hơn.";
+      console.error("App Processing Error:", error);
+      let errorMsg = error.message || 'Lỗi không xác định khi xử lý.';
+      
+      if (errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("429")) {
+        errorMsg = "Hệ thống đang quá tải (Rate Limit). Vui lòng đợi khoảng 1 phút và thử lại với file nhỏ hơn.";
       }
       
       setState(prev => ({
@@ -101,8 +103,8 @@ const App: React.FC = () => {
 
   const handleDownload = () => {
     if (state.tables.length > 0) {
-      const filename = (state.file?.name.replace('.pdf', '') || 'extracted_data') + 
-                        (mergeAllSheets ? '_merged' : '') + '_ocr.xlsx';
+      const filename = (state.file?.name.replace('.pdf', '') || 'du_lieu_trich_xuat') + 
+                        (mergeAllSheets ? '_tong_hop' : '') + '.xlsx';
       exportToExcel(state.tables, filename, mergeAllSheets);
     }
   };
@@ -112,10 +114,10 @@ const App: React.FC = () => {
       <div className="max-w-5xl mx-auto space-y-12">
         <section className="text-center space-y-4">
           <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight">
-            PDF sang Excel <span className="text-blue-600">Thông Minh</span>
+            PDF sang Excel <span className="text-blue-600">Pro OCR</span>
           </h1>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Sử dụng công nghệ Gemini Vision OCR để chuyển đổi các bảng dữ liệu phức tạp từ PDF sang Excel với độ chính xác cao nhất.
+            Công cụ trích xuất bảng chuyên nghiệp sử dụng Gemini 3 Pro Vision để đảm bảo độ chính xác tối đa.
           </p>
         </section>
 
@@ -146,9 +148,9 @@ const App: React.FC = () => {
               </div>
               
               {state.processing.status === 'loading' && (
-                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                   <div 
-                    className="bg-blue-600 h-full transition-all duration-500 ease-out"
+                    className="bg-blue-600 h-full transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(37,99,235,0.5)]"
                     style={{ width: `${state.processing.progress}%` }}
                   />
                 </div>
@@ -165,7 +167,7 @@ const App: React.FC = () => {
                   <FileStack className="w-6 h-6 text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">Tùy chọn xuất file</h2>
+                  <h2 className="text-xl font-bold text-slate-900">Kết quả trích xuất</h2>
                   <p className="text-slate-500 text-sm">Cấu hình cách dữ liệu được tổ chức trong Excel</p>
                 </div>
               </div>
@@ -189,19 +191,19 @@ const App: React.FC = () => {
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-8 py-12">
           <FeatureCard 
-            title="Sức mạnh AI"
-            description="OCR thế hệ mới hiểu được cấu trúc bảng, các ô gộp và định dạng phức tạp."
-            icon="✨"
+            title="Sức mạnh Gemini 3 Pro"
+            description="Sử dụng model mạnh nhất để nhận diện các cấu trúc bảng phức tạp nhất."
+            icon="🧠"
           />
           <FeatureCard 
-            title="An toàn dữ liệu"
-            description="Dữ liệu được xử lý trực tiếp qua Gemini API. Chúng tôi không lưu trữ tệp tin của bạn."
-            icon="🔒"
+            title="Độ nét cao"
+            description="Tự động nâng cấp độ phân giải PDF để đọc được cả những chữ nhỏ nhất."
+            icon="🔍"
           />
           <FeatureCard 
-            title="Độ chính xác cao"
-            description="Hỗ trợ tốt cho cả tài liệu scan, ảnh chụp có chất lượng thấp hoặc bảng vẽ tay."
-            icon="🎯"
+            title="Xử lý thông minh"
+            description="Tự động làm sạch dữ liệu và căn chỉnh cột khớp với tiêu đề."
+            icon="🧹"
           />
         </section>
       </div>

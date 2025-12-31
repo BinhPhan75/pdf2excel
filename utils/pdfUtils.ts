@@ -10,8 +10,7 @@ export const pdfToImages = async (file: File): Promise<string[]> => {
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    // Tăng scale lên 3.0 để ảnh cực kỳ sắc nét, giúp OCR chính xác hơn với font chữ nhỏ
-    const viewport = page.getViewport({ scale: 3.0 }); 
+    const viewport = page.getViewport({ scale: 2.0 }); // High scale for better OCR
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
 
@@ -25,9 +24,9 @@ export const pdfToImages = async (file: File): Promise<string[]> => {
       viewport: viewport
     }).promise;
 
-    // Sử dụng chất lượng 0.95 để giữ chi tiết tốt nhất
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    imageUrls.push(dataUrl.split(',')[1]); 
+    // Convert to base64 jpeg
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    imageUrls.push(dataUrl.split(',')[1]); // Only the base64 part
   }
 
   return imageUrls;
